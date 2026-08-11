@@ -66,14 +66,14 @@ st.subheader("📝 Registrar / Actualizar Tiempo de Staff")
 tab1, tab2 = st.tabs(["➕ Añadir Nuevo / Tiempo Q1", "🔄 Actualizar Tiempo Q2 (Fin de Quincena)"])
 
 with tab1:
-    with st.form("add_q1_form"):
+    with st.form("add_q1_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([1.5, 1, 3])
         with col1:
-            nick = st.text_input("Nick del Usuario", placeholder="Ej: EdgarMunoz")
+            nick = st.text_input("Nick del Usuario", placeholder="Ej: EdgarMunoz", key="input_nick")
         with col2:
-            rango = st.selectbox("Rango / Rol", RANGOS_STAFF)
+            rango = st.selectbox("Rango / Rol", RANGOS_STAFF, key="input_rango")
         with col3:
-            q1_text = st.text_input("Tiempo Actual / Inicio Quincena (Q1)", placeholder="Tiempo total jugado: 59 día(s), 19 hora(s)...")
+            q1_text = st.text_input("Tiempo Actual / Inicio Quincena (Q1)", placeholder="Tiempo total jugado: 59 día(s), 19 hora(s)...", key="input_q1")
         
         btn_add = st.form_submit_button("💾 Registrar Usuario en Quincena")
         if btn_add and nick:
@@ -94,12 +94,12 @@ with tab1:
 
 with tab2:
     if st.session_state.staff_db:
-        with st.form("add_q2_form"):
+        with st.form("add_q2_form", clear_on_submit=True):
             col_u, col_t = st.columns([1.5, 3])
             with col_u:
-                selected_user = st.selectbox("Selecciona el Usuario", list(st.session_state.staff_db.keys()))
+                selected_user = st.selectbox("Selecciona el Usuario", list(st.session_state.staff_db.keys()), key="input_select_user_q2")
             with col_t:
-                q2_text = st.text_input("Tiempo al Finalizar Quincena (Q2)", placeholder="Tiempo total jugado: 61 día(s), 21 hora(s)...")
+                q2_text = st.text_input("Tiempo al Finalizar Quincena (Q2)", placeholder="Tiempo total jugado: 61 día(s), 21 hora(s)...", key="input_q2")
             
             btn_update_q2 = st.form_submit_button("🏁 Guardar Fin de Quincena (Q2)")
             if btn_update_q2 and selected_user:
