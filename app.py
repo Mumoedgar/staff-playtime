@@ -92,9 +92,14 @@ if processed_rows:
 
     st.subheader("🏆 Ranking y Evaluación de Staff")
     
-    # Aplicar estilos
+    # Aplicar estilos con compatibilidad para versiones viejas y nuevas de Pandas
     def highlight_demote(val):
         color = '#ffcdd2' if 'DEMOTE' in str(val) else '#c8e6c9'
         return f'background-color: {color}; font-weight: bold;'
 
-    st.dataframe(df.style.applymap(highlight_demote, subset=['Estado']), use_container_width=True)
+    try:
+        styled_df = df.style.map(highlight_demote, subset=['Estado'])
+    except AttributeError:
+        styled_df = df.style.applymap(highlight_demote, subset=['Estado'])
+
+    st.dataframe(styled_df, use_container_width=True)
