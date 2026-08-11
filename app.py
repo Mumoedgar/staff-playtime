@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import json
 import os
+from PIL import Image
+import google.generativeai as genai
 
 st.set_page_config(page_title="Control Playtime Staff", page_icon="🎮", layout="wide")
 
@@ -47,10 +49,10 @@ def parse_minecraft_to_seconds(text):
     if not text or not isinstance(text, str):
         return 0
     
-    days = re.search(r'(\d+)\s*día', text)
-    hours = re.search(r'(\d+)\s*hora', text)
-    minutes = re.search(r'(\d+)\s*minuto', text)
-    seconds = re.search(r'(\d+)\s*segundo', text)
+    days = re.search(r'(\d+)\s*día', text, re.IGNORECASE)
+    hours = re.search(r'(\d+)\s*hora', text, re.IGNORECASE)
+    minutes = re.search(r'(\d+)\s*minuto', text, re.IGNORECASE)
+    seconds = re.search(r'(\d+)\s*segundo', text, re.IGNORECASE)
     
     d = int(days.group(1)) if days else 0
     h = int(hours.group(1)) if hours else 0
@@ -79,7 +81,7 @@ RANGOS_STAFF = ["Soporte", "Helper", "Mod"]
 with st.sidebar:
     st.header("💾 Copias de Seguridad")
     
-    # 1. EXPORTAR / DESCARGAR BACKUP
+    # EXPORTAR / DESCARGAR BACKUP
     json_data = json.dumps(st.session_state.staff_db, ensure_ascii=False, indent=4)
     st.download_button(
         label="📥 Descargar Backup (JSON)",
@@ -91,7 +93,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # 2. IMPORTAR / RESTAURAR BACKUP
+    # IMPORTAR / RESTAURAR BACKUP
     st.subheader("📤 Restaurar Backup")
     uploaded_backup = st.file_uploader("Subir archivo JSON de backup", type=["json"])
     
@@ -109,11 +111,100 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error al leer el archivo: {e}")
 
+    st.markdown("---")
+    st.header("🔑 Configuración IA (Opcional)")
+    gemini_key = st.text_input("Gemini API Key (Para escanear capturas)", type="password", help="Si vas a usar el escáner de capturas por IA, coloca aquí tu API Key de Google Gemini.")
+
 # --- SECCIÓN 1: FORMULARIO DE REGISTRO / ACTUALIZACIÓN ---
 st.subheader("📝 Registrar / Actualizar Tiempo de Staff")
 
-tab1, tab2 = st.tabs(["➕ Añadir Nuevo / Tiempo Q1", "🔄 Actualizar Tiempo Q2 (Fin de Quincena)"])
+tab_ai, tab1, tab2 = st.tabs(["📸 Escanear Captura (IA)", "➕ Entrada Manual (Q1)", "🔄 Actualizar Tiempo Q2"])
 
+# --- TAB IA: SUBIR CAPTURA ---
+with tab_ai:
+    st.markdown("##### 📸 Escanear captura de pantalla de Minecraft")
+    st.caption("Sube la captura de la pantalla o del chat donde aparece el tiempo jugado del usuario.")
+    
+    col_img1, col_img2 = st.columns([1, 1])
+    
+    with col_img1:
+        uploaded_image = st.file_uploader("Sube una captura de pantalla (.png, .jpg, .jpeg)", type=["png", "jpg", "jpeg"], key="screenshot_uploader")
+        periodo_target = st.radio("¿Para qué periodo es esta captura?", ["Q1 (Inicio de Quincena)", "Q2 (Fin de Quincena)"], horizontal=True)
+        rango_ai = st.selectbox("Rango / Rol (para nuevos registros)", RANGOS_STAFF, key="ai_rango")
+
+    with col_img2:
+        if uploaded_image is not None:
+            image = Image.open(uploaded_image)
+            st.image(image, caption="Captura subida", use_column_width=True)
+
+    if uploaded_image is not None:
+        if st.button("🔍 Escanear Captura con IA", type="primary"):
+            api_key = gemini_key or os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                st.error("⚠️ Necesitas ingresar una API Key de Gemini en la barra lateral para usar el escáner automático.")
+            else:
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    
+                    prompt = """
+                    Analiza la imagen de Minecraft adjunta.
+                    Extrae exactamente dos cosas en formato JSON estricto:
+                    1. "nick": El nombre del jugador (Nick / Username) que aparece en la pantalla o chat.
+                    2. "tiempo_texto": El texto exacto del tiempo jugado (por ejemplo: "Tiempo total jugado: 50 día(s), 12 hora(s), 30 minuto(s), 00 segundo(s)").
+
+                    Responde ÚNICAMENTE un JSON válido con esta estructura exactas:
+                    {
+                        "nick": "NombreDelUsuario",
+                        "tiempo_texto": "Tiempo total jugado: X día(s), X hora(s), X minuto(s), X segundo(s)"
+                    }
+                    """
+                    
+                    with st.spinner("Analizando la imagen con IA..."):
+                        response = model.generate_content([image, prompt])
+                        raw_text = response.text.strip()
+                        # Limpiar posible bloque de código Markdown
+                        clean_json_str = re.sub(r'```json\s*|\s*```', '', raw_text)
+                        parsed_res = json.loads(clean_json_str)
+                        
+                        detected_nick = parsed_res.get("nick", "").strip()
+                        detected_time = parsed_res.get("tiempo_texto", "").strip()
+                        
+                        if detected_nick and detected_time:
+                            st.success(f"✅ ¡Datos detectados! **Usuario:** `{detected_nick}` | **Tiempo:** `{detected_time}`")
+                            
+                            # Guardar directamente
+                            if "Q1" in periodo_target:
+                                if detected_nick in st.session_state.staff_db:
+                                    st.session_state.staff_db[detected_nick]["Rango"] = rango_ai
+                                    st.session_state.staff_db[detected_nick]["Q1_Text"] = detected_time
+                                else:
+                                    st.session_state.staff_db[detected_nick] = {
+                                        "Rango": rango_ai,
+                                        "Q1_Text": detected_time,
+                                        "Q2_Text": "",
+                                        "Estado_Manual": "ACTIVO"
+                                    }
+                            else: # Q2
+                                if detected_nick in st.session_state.staff_db:
+                                    st.session_state.staff_db[detected_nick]["Q2_Text"] = detected_time
+                                else:
+                                    st.session_state.staff_db[detected_nick] = {
+                                        "Rango": rango_ai,
+                                        "Q1_Text": "",
+                                        "Q2_Text": detected_time,
+                                        "Estado_Manual": "ACTIVO"
+                                    }
+                            
+                            save_data(st.session_state.staff_db)
+                            st.success(f"¡Se han registrado automáticamente los datos de **{detected_nick}**!")
+                            st.rerun()
+                        else:
+                            st.error("No se pudo detectar claramente el Nick o el Tiempo en la imagen. Inténtalo con una captura más nítida o agrégalo manualmente.")
+                except Exception as e:
+                    st.error(f"Error al procesar la imagen: {e}")
+
+# --- TAB MANUAL Q1 ---
 with tab1:
     with st.form("add_q1_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([1.5, 1, 3])
@@ -141,6 +232,7 @@ with tab1:
             st.success(f"¡Usuario **{clean_nick}** guardado con éxito!")
             st.rerun()
 
+# --- TAB MANUAL Q2 ---
 with tab2:
     if st.session_state.staff_db:
         with st.form("add_q2_form", clear_on_submit=True):
