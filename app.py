@@ -200,20 +200,18 @@ with tab_ai:
                     genai.configure(api_key=api_key)
                     model = genai.GenerativeModel("gemini-1.5-flash")
 
-                    prompt = """
-                    Analiza la imagen de Minecraft adjunta.
-                    Extrae exactamente dos cosas en formato JSON estricto:
-                    1. "nick": El nombre del jugador (Nick / Username) que aparece en la pantalla o chat.
-                    2. "tiempo_texto": El texto exacto del tiempo jugado (por ejemplo: "Tiempo total jugado: 50 día(s), 12 hora(s), 30 minuto(s), 00 segundo(s)").
-
-                    Responde ÚNICAMENTE un JSON válido con esta estructura exacta:
-                    {
-                        "nick": "NombreDelUsuario",
-                        "tiempo_texto": "Tiempo total jugado: X día(s), X hora(s), X minuto(s), X segundo(s)"
-                    }
-                    """
+                    prompt = (
+                        "Analiza la imagen de Minecraft adjunta. "
+                        "Extrae exactamente dos cosas en formato JSON estricto:\n"
+                        '1. "nick": El nombre del jugador (Nick / Username) que aparece en la pantalla o chat.\n'
+                        '2. "tiempo_texto": El texto exacto del tiempo jugado (por ejemplo: "Tiempo total jugado: 50 día(s), 12 hora(s), 30 minuto(s), 00 segundo(s)").\n\n'
+                        "Responde ÚNICAMENTE un JSON válido con esta estructura exacta:\n"
+                        '{\n  "nick": "NombreDelUsuario",\n  "tiempo_texto": "Tiempo total jugado: X día(s), X hora(s), X minuto(s), X segundo(s)"\n}'
+                    )
 
                     with st.spinner("Analizando la imagen con IA..."):
                         response = model.generate_content([image, prompt])
                         raw_text = response.text.strip()
-                        clean_json_str = re.sub(r"```json\s*|\s*
+                        
+                        # Limpieza segura sin expresiones regulares de múltiples líneas
+                        clean_json_str = raw_text.replace("```json", "").replace("
