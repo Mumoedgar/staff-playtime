@@ -40,7 +40,7 @@ def format_seconds_to_exact_time(total_seconds):
 # Inicializar Base de Datos en Session State
 default_data = {
     "EdgarMunoz": {
-        "Rango": "Administrador",
+        "Rango": "Mod",
         "Q1_Text": "Tiempo total jugado: 59 día(s), 19 hora(s), 17 minuto(s), 45 segundo(s)",
         "Q2_Text": "Tiempo total jugado: 61 día(s), 21 hora(s), 40 minuto(s), 10 segundo(s)",
         "Estado_Manual": "ACTIVO"
@@ -56,6 +56,9 @@ default_data = {
 if 'staff_db' not in st.session_state:
     st.session_state.staff_db = default_data
 
+# Lista oficial de rangos permitidos
+RANGOS_STAFF = ["Soporte", "Helper", "Mod"]
+
 # --- SECCIÓN 1: FORMULARIO DE REGISTRO / ACTUALIZACIÓN ---
 st.subheader("📝 Registrar / Actualizar Tiempo de Staff")
 
@@ -67,7 +70,7 @@ with tab1:
         with col1:
             nick = st.text_input("Nick del Usuario", placeholder="Ej: EdgarMunoz")
         with col2:
-            rango = st.selectbox("Rango / Rol", ["Helper", "Soporte", "Moderador", "Administrador", "Builder", "Dev", "Otro"])
+            rango = st.selectbox("Rango / Rol", RANGOS_STAFF)
         with col3:
             q1_text = st.text_input("Tiempo Actual / Inicio Quincena (Q1)", placeholder="Tiempo total jugado: 59 día(s), 19 hora(s)...")
         
@@ -77,7 +80,7 @@ with tab1:
             if clean_nick in st.session_state.staff_db:
                 st.session_state.staff_db[clean_nick]["Rango"] = rango
                 st.session_state.staff_db[clean_nick]["Q1_Text"] = q1_text
-                st.success(f"¡Se actualizó el tiempo Q1 de **{clean_nick}**!")
+                st.success(f"¡Se actualizó el rango a **{rango}** y el tiempo Q1 de **{clean_nick}**!")
             else:
                 st.session_state.staff_db[clean_nick] = {
                     "Rango": rango,
