@@ -43,13 +43,13 @@ default_data = {
     "EdgarMunoz": {
         "Rango": "Soporte",
         "Q1_Text": "Tiempo total jugado: 50 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 51 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)", # 36h jugadas en quincena
+        "Q2_Text": "Tiempo total jugado: 51 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)",
         "Estado_Manual": "ACTIVO"
     },
     "CrafterPro": {
         "Rango": "Helper",
         "Q1_Text": "Tiempo total jugado: 10 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 10 día(s), 05 hora(s), 00 minuto(s), 00 segundo(s)", # 2.5h/sem -> Posible demote
+        "Q2_Text": "Tiempo total jugado: 10 día(s), 05 hora(s), 00 minuto(s), 00 segundo(s)",
         "Estado_Manual": "ACTIVO"
     }
 }
@@ -168,14 +168,13 @@ for user_nick, data in st.session_state.staff_db.items():
         "_raw_gained": s_gained
     })
 
-    # Datos para la gráfica de líneas (Horas totales acumuladas Q1 vs Q2)
+    # Datos para la gráfica de líneas
     if s_q1 > 0:
         chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Inicio Quincena (Q1)", "Horas Totales": round(s_q1 / 3600.0, 1)})
         chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Fin Quincena (Q2)", "Horas Totales": round((s_q2 if s_q2 > 0 else s_q1) / 3600.0, 1)})
 
 if processed_rows:
     df = pd.DataFrame(processed_rows)
-    # Ordenar por tiempo jugado en la quincena
     df = df.sort_values(by="_raw_gained", ascending=False).reset_index(drop=True)
     df.drop(columns=["_raw_gained"], inplace=True)
     df.index = df.index + 1
@@ -229,11 +228,11 @@ if processed_rows:
         fig.update_layout(height=450)
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- SECCIÓN 4: GESTIÓN DE EXPULSIONES Y BORRADO ---
+    # --- SECCIÓN 4: GESTIÓN DE EXPULSIONES, BORRADO Y REINICIO DE QUINCENA ---
     st.markdown("---")
-    st.subheader("⚙️ Gestión y Sanciones de Staff")
+    st.subheader("⚙️ Gestión y Acciones Globales")
     
-    col_m1, col_m2 = st.columns(2)
+    col_m1, col_m2, col_m3 = st.columns(3)
     
     with col_m1:
         st.write("📌 **Cambiar Estado (Retirado / Expulsado)**")
@@ -250,4 +249,19 @@ if processed_rows:
         if st.button("❌ Eliminar Permanentemente", type="primary"):
             del st.session_state.staff_db[user_to_delete]
             st.success(f"Usuario {user_to_delete} eliminado.")
+            st.rerun()
+
+    with col_m3:
+        st.write("🔄 **Iniciar Nueva Quincena**")
+        st.caption("Pasa las horas Q2 a Q1 y deja Q2 libre para el siguiente periodo.")
+        if st.button("🚀 Iniciar Nueva Quincena", type="secondary"):
+            count_updated = 0
+            for user, data in st.session_state.staff_db.items():
+                if data["Q2_Text"]:
+                    # Pasar el tiempo Q2 a Q1
+                    data["Q1_Text"] = data["Q2_Text"]
+                    # Resetear Q2
+                    data["Q2_Text"] = ""
+                    count_updated += 1
+            st.success(f"¡Quincena reiniciada! Se traspasaron los tiempos de {count_updated} usuarios.")
             st.rerun()
