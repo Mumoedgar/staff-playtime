@@ -216,5 +216,8 @@ with tab_ai:
                     with st.spinner("Analizando la imagen con IA..."):
                         response = model.generate_content([image, prompt])
                         raw_text = response.text.strip()
-                        clean_json_str = re.sub(
-                            r"```json\s*|\s*
+                        
+                        # Línea corregida (cadena en una sola línea):
+                        clean_json_str = re.sub(r"```json\s*|\s*```", "", raw_text)
+                        
+                        parsed_res = json.loads(clean_json_str)
