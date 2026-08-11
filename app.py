@@ -2,11 +2,46 @@ import streamlit as st
 import re
 import pandas as pd
 import plotly.express as px
+import json
+import os
 
 st.set_page_config(page_title="Control Playtime Staff", page_icon="🎮", layout="wide")
 
 st.title("🎮 Control de Actividad y Playtime Staff")
 st.caption("Panel quincenal de seguimiento, evaluación de Staff y promociones/demotes")
+
+# --- ARCHIVO DE PERSISTENCIA (GUARDADO EN DISCO) ---
+DB_FILE = "staff_data.json"
+
+def load_data():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Datos por defecto si no existe el archivo
+    return {
+        "EdgarMunoz": {
+            "Rango": "Soporte",
+            "Q1_Text": "Tiempo total jugado: 50 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
+            "Q2_Text": "Tiempo total jugado: 51 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)",
+            "Estado_Manual": "ACTIVO"
+        },
+        "CrafterPro": {
+            "Rango": "Helper",
+            "Q1_Text": "Tiempo total jugado: 10 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
+            "Q2_Text": "Tiempo total jugado: 10 día(s), 05 hora(s), 00 minuto(s), 00 segundo(s)",
+            "Estado_Manual": "ACTIVO"
+        }
+    }
+
+def save_data(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+if 'staff_db' not in st.session_state:
+    st.session_state.staff_db = load_data()
 
 # Función para convertir el texto de Minecraft a segundos exactos
 def parse_minecraft_to_seconds(text):
@@ -38,25 +73,6 @@ def format_seconds_to_exact_time(total_seconds):
     
     return f"{hours}h {minutes}m {seconds}s"
 
-# Inicializar Base de Datos en Session State
-default_data = {
-    "EdgarMunoz": {
-        "Rango": "Soporte",
-        "Q1_Text": "Tiempo total jugado: 50 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 51 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Estado_Manual": "ACTIVO"
-    },
-    "CrafterPro": {
-        "Rango": "Helper",
-        "Q1_Text": "Tiempo total jugado: 10 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 10 día(s), 05 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Estado_Manual": "ACTIVO"
-    }
-}
-
-if 'staff_db' not in st.session_state:
-    st.session_state.staff_db = default_data
-
 # Lista oficial de rangos permitidos
 RANGOS_STAFF = ["Soporte", "Helper", "Mod"]
 
@@ -81,7 +97,6 @@ with tab1:
             if clean_nick in st.session_state.staff_db:
                 st.session_state.staff_db[clean_nick]["Rango"] = rango
                 st.session_state.staff_db[clean_nick]["Q1_Text"] = q1_text
-                st.success(f"¡Se actualizó el rango a **{rango}** y el tiempo Q1 de **{clean_nick}**!")
             else:
                 st.session_state.staff_db[clean_nick] = {
                     "Rango": rango,
@@ -89,7 +104,8 @@ with tab1:
                     "Q2_Text": "",
                     "Estado_Manual": "ACTIVO"
                 }
-                st.success(f"¡Usuario **{clean_nick}** ({rango}) registrado con éxito!")
+            save_data(st.session_state.staff_db)
+            st.success(f"¡Usuario **{clean_nick}** guardado permanentemente!")
             st.rerun()
 
 with tab2:
@@ -104,6 +120,7 @@ with tab2:
             btn_update_q2 = st.form_submit_button("🏁 Guardar Fin de Quincena (Q2)")
             if btn_update_q2 and selected_user:
                 st.session_state.staff_db[selected_user]["Q2_Text"] = q2_text
+                save_data(st.session_state.staff_db)
                 st.success(f"¡Tiempo final guardado para **{selected_user}**!")
                 st.rerun()
     else:
@@ -119,24 +136,21 @@ for user_nick, data in st.session_state.staff_db.items():
     s_q1 = parse_minecraft_to_seconds(data["Q1_Text"])
     s_q2 = parse_minecraft_to_seconds(data["Q2_Text"])
     
-    # Cálculos exactos
     if s_q2 > 0 and s_q2 >= s_q1:
         s_gained = s_q2 - s_q1
     else:
         s_gained = 0
         
-    s_weekly = s_gained // 2  # Media semanal
+    s_weekly = s_gained // 2
     hours_gained = round(s_gained / 3600.0, 2)
     hours_weekly = round(s_weekly / 3600.0, 2)
     
-    # % Crecimiento
     if s_q1 > 0 and s_gained > 0:
         pct_growth = round((s_gained / s_q1) * 100, 1)
         pct_str = f"+{pct_growth}%"
     else:
         pct_str = "0%"
         
-    # LÓGICA DE EVALUACIÓN PERSONALIZADA
     user_rank = data["Rango"]
     
     if data["Estado_Manual"] in ["RETIRADO", "EXPULSADO"]:
@@ -144,13 +158,10 @@ for user_nick, data in st.session_state.staff_db.items():
     elif s_q2 == 0:
         eval_status = "⏳ PENDIENTE Q2"
     else:
-        # 1. Si es Soporte y tiene más de 30 horas jugadas en la quincena
         if user_rank == "Soporte" and hours_gained >= 30.0:
             eval_status = "🟢 ACTIVO (POSIBLE PROMOTE)"
-        # 2. Si es Helper y tiene menos de 10 horas/semana (<20h quincenales)
         elif user_rank == "Helper" and hours_weekly < 10.0:
             eval_status = "⚠️ INACTIVO (POSIBLE DEMOTE)"
-        # 3. Resto de rangos con menos de 10h/semana
         elif hours_weekly < 10.0:
             eval_status = "⚠️ DEMOTE"
         else:
@@ -168,7 +179,6 @@ for user_nick, data in st.session_state.staff_db.items():
         "_raw_gained": s_gained
     })
 
-    # Datos para la gráfica de líneas
     if s_q1 > 0:
         chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Inicio Quincena (Q1)", "Horas Totales": round(s_q1 / 3600.0, 1)})
         chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Fin Quincena (Q2)", "Horas Totales": round((s_q2 if s_q2 > 0 else s_q1) / 3600.0, 1)})
@@ -180,7 +190,6 @@ if processed_rows:
     df.index = df.index + 1
     df.index.name = "Rank"
 
-    # KPIs Rápidos
     promotes_count = len(df[df["Estado / Evaluación"].str.contains("PROMOTE", na=False)])
     demotes_count = len(df[df["Estado / Evaluación"].str.contains("DEMOTE", na=False)])
     
@@ -240,6 +249,7 @@ if processed_rows:
         new_status = st.selectbox("Nuevo Estado", ["ACTIVO", "RETIRADO", "EXPULSADO"])
         if st.button("Aplicar Estado"):
             st.session_state.staff_db[user_to_status]["Estado_Manual"] = new_status
+            save_data(st.session_state.staff_db)
             st.success(f"Estado de {user_to_status} cambiado a {new_status}")
             st.rerun()
 
@@ -248,6 +258,7 @@ if processed_rows:
         user_to_delete = st.selectbox("Seleccionar Staff a Borrar", list(st.session_state.staff_db.keys()), key="select_delete")
         if st.button("❌ Eliminar Permanentemente", type="primary"):
             del st.session_state.staff_db[user_to_delete]
+            save_data(st.session_state.staff_db)
             st.success(f"Usuario {user_to_delete} eliminado.")
             st.rerun()
 
@@ -258,10 +269,9 @@ if processed_rows:
             count_updated = 0
             for user, data in st.session_state.staff_db.items():
                 if data["Q2_Text"]:
-                    # Pasar el tiempo Q2 a Q1
                     data["Q1_Text"] = data["Q2_Text"]
-                    # Resetear Q2
                     data["Q2_Text"] = ""
                     count_updated += 1
+            save_data(st.session_state.staff_db)
             st.success(f"¡Quincena reiniciada! Se traspasaron los tiempos de {count_updated} usuarios.")
             st.rerun()
