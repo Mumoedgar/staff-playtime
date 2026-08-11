@@ -10,7 +10,7 @@ st.set_page_config(page_title="Control Playtime Staff", page_icon="🎮", layout
 st.title("🎮 Control de Actividad y Playtime Staff")
 st.caption("Panel quincenal de seguimiento, evaluación de Staff y promociones/demotes")
 
-# --- ARCHIVO DE PERSISTENCIA (GUARDADO EN DISCO) ---
+# --- ARCHIVO DE PERSISTENCIA (GUARDADO LOCAL) ---
 DB_FILE = "staff_data.json"
 
 def load_data():
@@ -20,7 +20,6 @@ def load_data():
                 return json.load(f)
         except Exception:
             pass
-    # Datos por defecto si no existe el archivo
     return {
         "EdgarMunoz": {
             "Rango": "Soporte",
@@ -76,6 +75,40 @@ def format_seconds_to_exact_time(total_seconds):
 # Lista oficial de rangos permitidos
 RANGOS_STAFF = ["Soporte", "Helper", "Mod"]
 
+# --- SECCIÓN: SISTEMA DE BACKUP (IMPORTAR Y EXPORTAR) ---
+with st.sidebar:
+    st.header("💾 Copias de Seguridad")
+    
+    # 1. EXPORTAR / DESCARGAR BACKUP
+    json_data = json.dumps(st.session_state.staff_db, ensure_ascii=False, indent=4)
+    st.download_button(
+        label="📥 Descargar Backup (JSON)",
+        data=json_data,
+        file_name="backup_staff_playtime.json",
+        mime="application/json",
+        use_container_width=True
+    )
+    
+    st.markdown("---")
+    
+    # 2. IMPORTAR / RESTAURAR BACKUP
+    st.subheader("📤 Restaurar Backup")
+    uploaded_backup = st.file_uploader("Subir archivo JSON de backup", type=["json"])
+    
+    if uploaded_backup is not None:
+        if st.button("🔄 Cargar y Restaurar Datos", use_container_width=True):
+            try:
+                restored_data = json.load(uploaded_backup)
+                if isinstance(restored_data, dict):
+                    st.session_state.staff_db = restored_data
+                    save_data(restored_data)
+                    st.success("¡Base de datos restaurada con éxito!")
+                    st.rerun()
+                else:
+                    st.error("El archivo JSON no tiene un formato válido.")
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {e}")
+
 # --- SECCIÓN 1: FORMULARIO DE REGISTRO / ACTUALIZACIÓN ---
 st.subheader("📝 Registrar / Actualizar Tiempo de Staff")
 
@@ -105,7 +138,7 @@ with tab1:
                     "Estado_Manual": "ACTIVO"
                 }
             save_data(st.session_state.staff_db)
-            st.success(f"¡Usuario **{clean_nick}** guardado permanentemente!")
+            st.success(f"¡Usuario **{clean_nick}** guardado con éxito!")
             st.rerun()
 
 with tab2:
