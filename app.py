@@ -163,5 +163,141 @@ with tab_ai:
                     with st.spinner("Analizando la imagen con IA..."):
                         response = model.generate_content([image, prompt])
                         raw_text = response.text.strip()
-                        # Limpiar posible bloque de código Markdown
-                        clean_json_str = re.sub(r'```json\s*|\s*
+                        
+                        # Limpiar el formato Markdown ```json ... ``` sin causar SyntaxError
+                        clean_json_str = raw_text
+                        if "```" in clean_json_str:
+                            clean_json_str = re.sub(r"^```[a-z]*\n?", "", clean_json_str, flags=re.MULTILINE)
+                            clean_json_str = re.sub(r"\n?```$", "", clean_json_str, flags=re.MULTILINE)
+                        
+                        parsed_res = json.loads(clean_json_str.strip())
+                        
+                        detected_nick = parsed_res.get("nick", "").strip()
+                        detected_time = parsed_res.get("tiempo_texto", "").strip()
+                        
+                        if detected_nick and detected_time:
+                            st.success(f"✅ ¡Datos detectados! **Usuario:** `{detected_nick}` | **Tiempo:** `{detected_time}`")
+                            
+                            # Guardar directamente
+                            if "Q1" in periodo_target:
+                                if detected_nick in st.session_state.staff_db:
+                                    st.session_state.staff_db[detected_nick]["Rango"] = rango_ai
+                                    st.session_state.staff_db[detected_nick]["Q1_Text"] = detected_time
+                                else:
+                                    st.session_state.staff_db[detected_nick] = {
+                                        "Rango": rango_ai,
+                                        "Q1_Text": detected_time,
+                                        "Q2_Text": "",
+                                        "Estado_Manual": "ACTIVO"
+                                    }
+                            else: # Q2
+                                if detected_nick in st.session_state.staff_db:
+                                    st.session_state.staff_db[detected_nick]["Q2_Text"] = detected_time
+                                else:
+                                    st.session_state.staff_db[detected_nick] = {
+                                        "Rango": rango_ai,
+                                        "Q1_Text": "",
+                                        "Q2_Text": detected_time,
+                                        "Estado_Manual": "ACTIVO"
+                                    }
+                            
+                            save_data(st.session_state.staff_db)
+                            st.success(f"¡Se han registrado automáticamente los datos de **{detected_nick}**!")
+                            st.rerun()
+                        else:
+                            st.error("No se pudo detectar claramente el Nick o el Tiempo en la imagen. Inténtalo con una captura más nítida o agrégalo manualmente.")
+                except Exception as e:
+                    st.error(f"Error al procesar la imagen: {e}")
+
+# --- TAB MANUAL Q1 ---
+with tab1:
+    with st.form("add_q1_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([1.5, 1, 3])
+        with col1:
+            nick = st.text_input("Nick del Usuario", placeholder="Ej: EdgarMunoz", key="input_nick")
+        with col2:
+            rango = st.selectbox("Rango / Rol", RANGOS_STAFF, key="input_rango")
+        with col3:
+            q1_text = st.text_input("Tiempo Actual / Inicio Quincena (Q1)", placeholder="Tiempo total jugado: 59 día(s), 19 hora(s)...", key="input_q1")
+        
+        btn_add = st.form_submit_button("💾 Registrar Usuario en Quincena")
+        if btn_add and nick:
+            clean_nick = nick.strip()
+            if clean_nick in st.session_state.staff_db:
+                st.session_state.staff_db[clean_nick]["Rango"] = rango
+                st.session_state.staff_db[clean_nick]["Q1_Text"] = q1_text
+            else:
+                st.session_state.staff_db[clean_nick] = {
+                    "Rango": rango,
+                    "Q1_Text": q1_text,
+                    "Q2_Text": "",
+                    "Estado_Manual": "ACTIVO"
+                }
+            save_data(st.session_state.staff_db)
+            st.success(f"¡Usuario **{clean_nick}** guardado con éxito!")
+            st.rerun()
+
+# --- TAB MANUAL Q2 ---
+with tab2:
+    if st.session_state.staff_db:
+        with st.form("add_q2_form", clear_on_submit=True):
+            col_u, col_t = st.columns([1.5, 3])
+            with col_u:
+                selected_user = st.selectbox("Selecciona el Usuario", list(st.session_state.staff_db.keys()), key="input_select_user_q2")
+            with col_t:
+                q2_text = st.text_input("Tiempo al Finalizar Quincena (Q2)", placeholder="Tiempo total jugado: 61 día(s), 21 hora(s)...", key="input_q2")
+            
+            btn_update_q2 = st.form_submit_button("🏁 Guardar Fin de Quincena (Q2)")
+            if btn_update_q2 and selected_user:
+                st.session_state.staff_db[selected_user]["Q2_Text"] = q2_text
+                save_data(st.session_state.staff_db)
+                st.success(f"¡Tiempo final guardado para **{selected_user}**!")
+                st.rerun()
+    else:
+        st.info("No hay usuarios registrados en la base de datos.")
+
+st.markdown("---")
+
+# --- SECCIÓN 2: TABLA Y PROCESAMIENTO ---
+processed_rows = []
+chart_data = []
+
+for user_nick, data in st.session_state.staff_db.items():
+    s_q1 = parse_minecraft_to_seconds(data["Q1_Text"])
+    s_q2 = parse_minecraft_to_seconds(data["Q2_Text"])
+    
+    if s_q2 > 0 and s_q2 >= s_q1:
+        s_gained = s_q2 - s_q1
+    else:
+        s_gained = 0
+        
+    s_weekly = s_gained // 2
+    hours_gained = round(s_gained / 3600.0, 2)
+    hours_weekly = round(s_weekly / 3600.0, 2)
+    
+    if s_q1 > 0 and s_gained > 0:
+        pct_growth = round((s_gained / s_q1) * 100, 1)
+        pct_str = f"+{pct_growth}%"
+    else:
+        pct_str = "0%"
+        
+    user_rank = data["Rango"]
+    
+    if data["Estado_Manual"] in ["RETIRADO", "EXPULSADO"]:
+        eval_status = f"🔴 {data['Estado_Manual']}"
+    elif s_q2 == 0:
+        eval_status = "⏳ PENDIENTE Q2"
+    else:
+        if user_rank == "Soporte" and hours_gained >= 30.0:
+            eval_status = "🟢 ACTIVO (POSIBLE PROMOTE)"
+        elif user_rank == "Helper" and hours_weekly < 10.0:
+            eval_status = "⚠️ INACTIVO (POSIBLE DEMOTE)"
+        elif hours_weekly < 10.0:
+            eval_status = "⚠️ DEMOTE"
+        else:
+            eval_status = "✅ ACTIVO"
+            
+    processed_rows.append({
+        "Nick": user_nick,
+        "Rango": user_rank,
+        "Tiempo Q1 (Inicio)": format_seconds_to_exact_time(s
