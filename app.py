@@ -1,11 +1,12 @@
 import streamlit as st
 import re
 import pandas as pd
+import plotly.express as px
 
 st.set_page_config(page_title="Control Playtime Staff", page_icon="🎮", layout="wide")
 
 st.title("🎮 Control de Actividad y Playtime Staff")
-st.caption("Panel quincenal de seguimiento, rangos y evaluación de Staff de Minecraft")
+st.caption("Panel quincenal de seguimiento, evaluación de Staff y promociones/demotes")
 
 # Función para convertir el texto de Minecraft a segundos exactos
 def parse_minecraft_to_seconds(text):
@@ -40,15 +41,15 @@ def format_seconds_to_exact_time(total_seconds):
 # Inicializar Base de Datos en Session State
 default_data = {
     "EdgarMunoz": {
-        "Rango": "Mod",
-        "Q1_Text": "Tiempo total jugado: 59 día(s), 19 hora(s), 17 minuto(s), 45 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 61 día(s), 21 hora(s), 40 minuto(s), 10 segundo(s)",
+        "Rango": "Soporte",
+        "Q1_Text": "Tiempo total jugado: 50 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
+        "Q2_Text": "Tiempo total jugado: 51 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)", # 36h jugadas en quincena
         "Estado_Manual": "ACTIVO"
     },
     "CrafterPro": {
         "Rango": "Helper",
         "Q1_Text": "Tiempo total jugado: 10 día(s), 00 hora(s), 00 minuto(s), 00 segundo(s)",
-        "Q2_Text": "Tiempo total jugado: 10 día(s), 12 hora(s), 00 minuto(s), 00 segundo(s)",
+        "Q2_Text": "Tiempo total jugado: 10 día(s), 05 hora(s), 00 minuto(s), 00 segundo(s)", # 2.5h/sem -> Posible demote
         "Estado_Manual": "ACTIVO"
     }
 }
@@ -112,6 +113,7 @@ st.markdown("---")
 
 # --- SECCIÓN 2: TABLA Y PROCESAMIENTO ---
 processed_rows = []
+chart_data = []
 
 for user_nick, data in st.session_state.staff_db.items():
     s_q1 = parse_minecraft_to_seconds(data["Q1_Text"])
@@ -124,6 +126,8 @@ for user_nick, data in st.session_state.staff_db.items():
         s_gained = 0
         
     s_weekly = s_gained // 2  # Media semanal
+    hours_gained = round(s_gained / 3600.0, 2)
+    hours_weekly = round(s_weekly / 3600.0, 2)
     
     # % Crecimiento
     if s_q1 > 0 and s_gained > 0:
@@ -132,20 +136,29 @@ for user_nick, data in st.session_state.staff_db.items():
     else:
         pct_str = "0%"
         
-    # Evaluación de Demote (< 10 horas semanales = 36000 segundos)
+    # LÓGICA DE EVALUACIÓN PERSONALIZADA
+    user_rank = data["Rango"]
+    
     if data["Estado_Manual"] in ["RETIRADO", "EXPULSADO"]:
         eval_status = f"🔴 {data['Estado_Manual']}"
+    elif s_q2 == 0:
+        eval_status = "⏳ PENDIENTE Q2"
     else:
-        if s_q2 == 0:
-            eval_status = "⏳ PENDIENTE Q2"
-        elif s_weekly < 36000:
+        # 1. Si es Soporte y tiene más de 30 horas jugadas en la quincena
+        if user_rank == "Soporte" and hours_gained >= 30.0:
+            eval_status = "🟢 ACTIVO (POSIBLE PROMOTE)"
+        # 2. Si es Helper y tiene menos de 10 horas/semana (<20h quincenales)
+        elif user_rank == "Helper" and hours_weekly < 10.0:
+            eval_status = "⚠️ INACTIVO (POSIBLE DEMOTE)"
+        # 3. Resto de rangos con menos de 10h/semana
+        elif hours_weekly < 10.0:
             eval_status = "⚠️ DEMOTE"
         else:
             eval_status = "✅ ACTIVO"
             
     processed_rows.append({
         "Nick": user_nick,
-        "Rango": data["Rango"],
+        "Rango": user_rank,
         "Tiempo Q1 (Inicio)": format_seconds_to_exact_time(s_q1),
         "Tiempo Q2 (Fin)": format_seconds_to_exact_time(s_q2) if s_q2 > 0 else "Sin registrar",
         "Tiempo Jugado (Quincena)": format_seconds_to_exact_time(s_gained),
@@ -154,6 +167,11 @@ for user_nick, data in st.session_state.staff_db.items():
         "Estado / Evaluación": eval_status,
         "_raw_gained": s_gained
     })
+
+    # Datos para la gráfica de líneas (Horas totales acumuladas Q1 vs Q2)
+    if s_q1 > 0:
+        chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Inicio Quincena (Q1)", "Horas Totales": round(s_q1 / 3600.0, 1)})
+        chart_data.append({"Staff": f"{user_nick} ({user_rank})", "Momento": "Fin Quincena (Q2)", "Horas Totales": round((s_q2 if s_q2 > 0 else s_q1) / 3600.0, 1)})
 
 if processed_rows:
     df = pd.DataFrame(processed_rows)
@@ -164,22 +182,23 @@ if processed_rows:
     df.index.name = "Rank"
 
     # KPIs Rápidos
-    active_users = df[~df["Estado / Evaluación"].str.contains("RETIRADO|EXPULSADO", na=False)]
-    top_user = active_users.iloc[0]["Nick"] if not active_users.empty else "N/A"
-    demotes_count = len(df[df["Estado / Evaluación"] == "⚠️ DEMOTE"])
+    promotes_count = len(df[df["Estado / Evaluación"].str.contains("PROMOTE", na=False)])
+    demotes_count = len(df[df["Estado / Evaluación"].str.contains("DEMOTE", na=False)])
     
     col_k1, col_k2, col_k3 = st.columns(3)
-    col_k1.metric("👑 Top Más Activo", top_user)
-    col_k2.metric("⚠️ En riesgo de DEMOTE (<10h/sem)", f"{demotes_count} usuarios")
+    col_k1.metric("🟢 Posibles Promociones", f"{promotes_count} miembros")
+    col_k2.metric("⚠️ Posibles Demotes / Inactivos", f"{demotes_count} miembros")
     col_k3.metric("👥 Total Staff Registrado", f"{len(df)} miembros")
 
     st.subheader("🏆 Ranking y Evaluación de Staff")
     
     def style_status(val):
-        if 'DEMOTE' in str(val):
+        if 'POSIBLE PROMOTE' in str(val):
+            return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
+        elif 'POSIBLE DEMOTE' in str(val) or 'DEMOTE' in str(val):
             return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
         elif 'ACTIVO' in str(val):
-            return 'background-color: #DCFCE7; color: #166534; font-weight: bold;'
+            return 'background-color: #E0E7FF; color: #3730A3; font-weight: bold;'
         elif 'RETIRADO' in str(val) or 'EXPULSADO' in str(val):
             return 'background-color: #F3F4F6; color: #6B7280; font-style: italic;'
         return ''
@@ -191,7 +210,26 @@ if processed_rows:
 
     st.dataframe(styled_df, use_container_width=True)
 
-    # --- SECCIÓN 3: GESTIÓN DE EXPULSIONES Y BORRADO ---
+    # --- SECCIÓN 3: GRÁFICO DE LÍNEAS DE EVOLUCIÓN ---
+    st.markdown("---")
+    st.subheader("📈 Evolución y Crecimiento de Playtime por Staff")
+    
+    if chart_data:
+        df_chart = pd.DataFrame(chart_data)
+        fig = px.line(
+            df_chart, 
+            x="Momento", 
+            y="Horas Totales", 
+            color="Staff", 
+            markers=True,
+            title="Progreso de Horas Acumuladas en Servidor (Q1 vs Q2)",
+            labels={"Horas Totales": "Horas Acumuladas en Server", "Momento": "Período Evaluado"}
+        )
+        fig.update_traces(marker=dict(size=10))
+        fig.update_layout(height=450)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # --- SECCIÓN 4: GESTIÓN DE EXPULSIONES Y BORRADO ---
     st.markdown("---")
     st.subheader("⚙️ Gestión y Sanciones de Staff")
     
